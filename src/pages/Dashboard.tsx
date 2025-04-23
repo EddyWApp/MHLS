@@ -4,10 +4,10 @@ import { supabase } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns';
 import Modal from '../components/Modal';
 import EditClientModal from '../components/EditClientModal';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(ArcElement, ChartTooltip, Legend);
 
 interface Appointment {
   id: string;
@@ -46,78 +46,97 @@ const Dashboard = () => {
     const today = new Date();
     const firstDayOfMonth = startOfMonth(today);
     const lastDayOfMonth = endOfMonth(today);
+    const firstDayStr = format(firstDayOfMonth, 'yyyy-MM-dd');
+    const lastDayStr = format(lastDayOfMonth, 'yyyy-MM-dd');
 
-    // Fetch upcoming payments
-    const { data: upcoming } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('status', 'pending')
-      .gte('next_payment_date', today.toISOString().split('T')[0])
-      .order('next_payment_date')
-      .limit(5);
+    try {
+      // Fetch upcoming payments
+      const { data: upcoming } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('status', 'pending')
+        .gte('next_payment_date', today.toISOString().split('T')[0])
+        .order('next_payment_date')
+        .limit(5);
 
-    // Fetch overdue payments
-    const { data: overdue } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('status', 'pending')
-      .lt('next_payment_date', today.toISOString().split('T')[0])
-      .order('next_payment_date');
+      // Fetch overdue payments
+      const { data: overdue } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('status', 'pending')
+        .lt('next_payment_date', today.toISOString().split('T')[0])
+        .order('next_payment_date');
 
-    // Fetch monthly paid payments
-    const { data: monthlyPaid } = await supabase
-      .from('appointments')
-      .select('*')
-      .eq('status', 'paid')
-      .gte('next_payment_date', firstDayOfMonth.toISOString())
-      .lte('next_payment_date', lastDayOfMonth.toISOString())
-      .order('next_payment_date');
+      // Fetch monthly paid payments
+      const { data: monthlyPaid } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('status', 'paid')
+        .gte('next_payment_date', firstDayStr)
+        .lte('next_payment_date', lastDayStr)
+        .order('next_payment_date');
 
-    // Calculate monthly total
-    const { data: monthlyPayments } = await supabase
-      .from('appointments')
-      .select('installment_value')
-      .gte('next_payment_date', firstDayOfMonth.toISOString())
-      .lte('next_payment_date', lastDayOfMonth.toISOString());
+      // Calculate monthly total (including both paid and pending)
+      const { data: monthlyPayments } = await supabase
+        .from('appointments')
+        .select('installment_value')
+        .gte('next_payment_date', firstDayStr)
+        .lte('next_payment_date', lastDayStr);
 
-    // Fetch total paid
-    const { data: paidPayments } = await supabase
-      .from('appointments')
-      .select('total_value')
-      .eq('status', 'paid');
+      // Fetch total paid
+      const { data: paidPayments } = await supabase
+        .from('appointments')
+        .select('installment_value')
+        .eq('status', 'paid');
 
-    // Fetch last 6 months of payments
-    const sixMonthsAgo = subMonths(today, 5);
-    const { data: lastSixMonthsPayments } = await supabase
-      .from('appointments')
-      .select('installment_value, next_payment_date')
-      .eq('status', 'paid')
-      .gte('next_payment_date', sixMonthsAgo.toISOString())
-      .lte('next_payment_date', today.toISOString());
+      // Fetch last 6 months of payments
+      const sixMonthsAgo = subMonths(firstDayOfMonth, 5);
+      const sixMonthsAgoStr = format(sixMonthsAgo, 'yyyy-MM-dd');
+      
+      const { data: lastSixMonthsPayments } = await supabase
+        .from('appointments')
+        .select('installment_value, next_payment_date')
+        .eq('status', 'paid')
+        .gte('next_payment_date', sixMonthsAgoStr)
+        .lte('next_payment_date', lastDayStr);
 
-    // Process monthly payments data
-    const monthlyData = new Map<string, number>();
-    lastSixMonthsPayments?.forEach(payment => {
-      const date = parseISO(payment.next_payment_date);
-      const monthKey = format(date, 'MMM/yyyy');
-      monthlyData.set(monthKey, (monthlyData.get(monthKey) || 0) + payment.installment_value);
-    });
+      // Process monthly payments data
+      const monthlyData = new Map<string, number>();
+      
+      // Initialize the last 6 months with zero values
+      for (let i = 0; i < 6; i++) {
+        const date = subMonths(today, i);
+        const monthKey = format(date, 'MMM/yyyy');
+        monthlyData.set(monthKey, 0);
+      }
 
-    const monthlyPaymentsArray = Array.from(monthlyData.entries()).map(([month, total]) => ({
-      month,
-      total
-    }));
+      // Add the actual payment data
+      lastSixMonthsPayments?.forEach(payment => {
+        const date = parseISO(payment.next_payment_date);
+        const monthKey = format(date, 'MMM/yyyy');
+        monthlyData.set(monthKey, (monthlyData.get(monthKey) || 0) + Number(payment.installment_value));
+      });
 
-    setMonthlyPaymentsData(monthlyPaymentsArray);
-    setUpcomingPayments(upcoming || []);
-    setOverduePayments(overdue || []);
-    setMonthlyPaidPayments(monthlyPaid || []);
-    setMonthlyTotal(
-      monthlyPayments?.reduce((acc, curr) => acc + curr.installment_value, 0) || 0
-    );
-    setTotalPaid(
-      paidPayments?.reduce((acc, curr) => acc + curr.total_value, 0) || 0
-    );
+      const monthlyPaymentsArray = Array.from(monthlyData.entries())
+        .map(([month, total]) => ({
+          month,
+          total
+        }))
+        .reverse(); // Show months in chronological order
+
+      setMonthlyPaymentsData(monthlyPaymentsArray);
+      setUpcomingPayments(upcoming || []);
+      setOverduePayments(overdue || []);
+      setMonthlyPaidPayments(monthlyPaid || []);
+      setMonthlyTotal(
+        monthlyPayments?.reduce((acc, curr) => acc + Number(curr.installment_value), 0) || 0
+      );
+      setTotalPaid(
+        paidPayments?.reduce((acc, curr) => acc + Number(curr.installment_value), 0) || 0
+      );
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    }
   };
 
   const handlePaymentComplete = async () => {
@@ -203,7 +222,7 @@ const Dashboard = () => {
             R$ {payment.installment_value.toFixed(2)}
           </p>
           <p className="text-sm text-gray-600 mb-2">
-            Vencimento: {format(new Date(payment.next_payment_date), 'dd/MM/yyyy')}
+            Vencimento: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
           </p>
           <button
             onClick={() => {
@@ -260,6 +279,9 @@ const Dashboard = () => {
           {upcomingPayments.map((payment) => (
             <PaymentCard key={payment.id} payment={payment} />
           ))}
+          {upcomingPayments.length === 0 && (
+            <p className="text-gray-500 text-center py-4">Nenhuma parcela futura encontrada</p>
+          )}
         </div>
 
         <div>
@@ -280,6 +302,9 @@ const Dashboard = () => {
                   <p className="font-bold">R$ {payment.installment_value.toFixed(2)}</p>
                 </div>
               ))}
+              {monthlyPaidPayments.length === 0 && (
+                <p className="text-gray-500 text-center py-4">Nenhuma parcela paga este mês</p>
+              )}
             </div>
           </div>
         </div>

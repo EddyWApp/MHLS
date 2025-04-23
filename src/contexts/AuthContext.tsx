@@ -16,13 +16,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    const initializeAuth = async () => {
+      try {
+        // Check active sessions and sets the user
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error?.message.includes('refresh_token_not_found')) {
+          // Clear any invalid tokens and redirect to login
+          await supabase.auth.signOut();
+          window.location.href = '/login';
+          return;
+        }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+        // Handle any other errors by clearing auth state
+        await supabase.auth.signOut();
+        window.location.href = '/login';
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
     });
 
