@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Calendar, AlertCircle, CheckCircle, DollarSign, Edit2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { format, startOfMonth, endOfMonth, subMonths, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
 import Modal from '../components/Modal';
 import EditClientModal from '../components/EditClientModal';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
@@ -26,6 +26,13 @@ interface MonthlyPayment {
   month: string;
   total: number;
 }
+
+const formatCurrency = (value: number) => {
+  return value.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  });
+};
 
 const Dashboard = () => {
   const [upcomingPayments, setUpcomingPayments] = useState<Appointment[]>([]);
@@ -67,7 +74,15 @@ const Dashboard = () => {
         .lt('next_payment_date', today.toISOString().split('T')[0])
         .order('next_payment_date');
 
-      // Fetch monthly paid payments
+      // Fetch all payments for the current month (regardless of status)
+      const { data: allMonthlyPayments } = await supabase
+        .from('appointments')
+        .select('*')
+        .gte('next_payment_date', firstDayStr)
+        .lte('next_payment_date', lastDayStr)
+        .order('next_payment_date');
+
+      // Fetch paid payments for the current month
       const { data: monthlyPaid } = await supabase
         .from('appointments')
         .select('*')
@@ -76,64 +91,51 @@ const Dashboard = () => {
         .lte('next_payment_date', lastDayStr)
         .order('next_payment_date');
 
-      // Calculate monthly total (including both paid and pending)
-      const { data: monthlyPayments } = await supabase
-        .from('appointments')
-        .select('installment_value')
-        .gte('next_payment_date', firstDayStr)
-        .lte('next_payment_date', lastDayStr);
+      // Calculate monthly totals
+      const monthlyTotalValue = allMonthlyPayments?.reduce(
+        (acc, curr) => acc + Number(curr.installment_value),
+        0
+      ) || 0;
 
-      // Fetch total paid
-      const { data: paidPayments } = await supabase
-        .from('appointments')
-        .select('installment_value')
-        .eq('status', 'paid');
+      const totalPaidValue = monthlyPaid?.reduce(
+        (acc, curr) => acc + Number(curr.installment_value),
+        0
+      ) || 0;
 
-      // Fetch last 6 months of payments
-      const sixMonthsAgo = subMonths(firstDayOfMonth, 5);
-      const sixMonthsAgoStr = format(sixMonthsAgo, 'yyyy-MM-dd');
-      
-      const { data: lastSixMonthsPayments } = await supabase
-        .from('appointments')
-        .select('installment_value, next_payment_date')
-        .eq('status', 'paid')
-        .gte('next_payment_date', sixMonthsAgoStr)
-        .lte('next_payment_date', lastDayStr);
-
-      // Process monthly payments data
+      // Process monthly payments data for the pie chart
       const monthlyData = new Map<string, number>();
       
-      // Initialize the last 6 months with zero values
-      for (let i = 0; i < 6; i++) {
-        const date = subMonths(today, i);
+      // Initialize with zero values
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const monthKey = format(date, 'MMM/yyyy');
         monthlyData.set(monthKey, 0);
       }
 
-      // Add the actual payment data
-      lastSixMonthsPayments?.forEach(payment => {
+      // Add actual payment data
+      monthlyPaid?.forEach(payment => {
         const date = parseISO(payment.next_payment_date);
         const monthKey = format(date, 'MMM/yyyy');
-        monthlyData.set(monthKey, (monthlyData.get(monthKey) || 0) + Number(payment.installment_value));
+        if (monthlyData.has(monthKey)) {
+          monthlyData.set(
+            monthKey,
+            (monthlyData.get(monthKey) || 0) + Number(payment.installment_value)
+          );
+        }
       });
 
       const monthlyPaymentsArray = Array.from(monthlyData.entries())
         .map(([month, total]) => ({
           month,
           total
-        }))
-        .reverse(); // Show months in chronological order
+        }));
 
       setMonthlyPaymentsData(monthlyPaymentsArray);
       setUpcomingPayments(upcoming || []);
       setOverduePayments(overdue || []);
       setMonthlyPaidPayments(monthlyPaid || []);
-      setMonthlyTotal(
-        monthlyPayments?.reduce((acc, curr) => acc + Number(curr.installment_value), 0) || 0
-      );
-      setTotalPaid(
-        paidPayments?.reduce((acc, curr) => acc + Number(curr.installment_value), 0) || 0
-      );
+      setMonthlyTotal(monthlyTotalValue);
+      setTotalPaid(totalPaidValue);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     }
@@ -164,12 +166,12 @@ const Dashboard = () => {
       {
         data: monthlyPaymentsData.map(data => data.total),
         backgroundColor: [
-          '#c7a978',
-          '#d4bc94',
-          '#e1ceb0',
-          '#eee0cc',
-          '#faf2e8',
-          '#fff9f2',
+          '#FF6B6B', // Vermelho
+          '#4ECDC4', // Verde água
+          '#45B7D1', // Azul claro
+          '#96CEB4', // Verde claro
+          '#4A90E2', // Azul
+          '#9B59B6'  // Roxo
         ],
         borderColor: '#ffffff',
         borderWidth: 2,
@@ -190,7 +192,7 @@ const Dashboard = () => {
       tooltip: {
         callbacks: {
           label: function(context: any) {
-            return `R$ ${context.raw.toFixed(2)}`;
+            return formatCurrency(context.raw);
           },
         },
       },
@@ -219,7 +221,7 @@ const Dashboard = () => {
         </div>
         <div className="text-right">
           <p className="font-bold text-lg">
-            R$ {payment.installment_value.toFixed(2)}
+            {formatCurrency(payment.installment_value)}
           </p>
           <p className="text-sm text-gray-600 mb-2">
             Vencimento: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
@@ -248,7 +250,10 @@ const Dashboard = () => {
             <Calendar className="w-6 h-6 icon-primary mr-2" />
             <h2 className="text-xl font-semibold">Total do Mês</h2>
           </div>
-          <p className="text-3xl font-bold">R$ {monthlyTotal.toFixed(2)}</p>
+          <p className="text-3xl font-bold">{formatCurrency(monthlyTotal)}</p>
+          <p className="text-sm text-gray-600 mt-2">
+            Total de parcelas previstas para este mês
+          </p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -256,7 +261,10 @@ const Dashboard = () => {
             <CheckCircle className="w-6 h-6 icon-primary mr-2" />
             <h2 className="text-xl font-semibold">Total Recebido</h2>
           </div>
-          <p className="text-3xl font-bold">R$ {totalPaid.toFixed(2)}</p>
+          <p className="text-3xl font-bold">{formatCurrency(totalPaid)}</p>
+          <p className="text-sm text-gray-600 mt-2">
+            Total de parcelas pagas neste mês
+          </p>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6">
@@ -295,11 +303,15 @@ const Dashboard = () => {
                 <div key={payment.id} className="flex justify-between items-center border-b pb-4 last:border-b-0 last:pb-0">
                   <div>
                     <p className="font-medium">{payment.patient_name}</p>
+                    <p className="text-sm text-gray-600">{payment.procedure}</p>
                     <p className="text-sm text-gray-600">
                       Parcela {payment.installment_number} de {payment.installments}
                     </p>
+                    <p className="text-sm text-gray-600">
+                      Pago em: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
+                    </p>
                   </div>
-                  <p className="font-bold">R$ {payment.installment_value.toFixed(2)}</p>
+                  <p className="font-bold">{formatCurrency(payment.installment_value)}</p>
                 </div>
               ))}
               {monthlyPaidPayments.length === 0 && (
