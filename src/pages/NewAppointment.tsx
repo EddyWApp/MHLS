@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Calendar, DollarSign, User, FileText, Hash, ArrowLeft } from 'lucide-react';
-import { addDays, format, parseISO, set } from 'date-fns';
+import { Calendar, DollarSign, User, FileText, Hash, ArrowLeft, CreditCard } from 'lucide-react';
+import { addDays, format, parseISO, set, isWeekend } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { Tooltip } from '../components/Tooltip';
 import InputMask from 'react-input-mask';
 import toast from 'react-hot-toast';
+
+const timeZone = 'America/Sao_Paulo';
 
 const NewAppointment = () => {
   const navigate = useNavigate();
@@ -16,20 +19,28 @@ const NewAppointment = () => {
     total_value: '',
     installments: '1',
     procedure_date: '',
+    payment_method: 'credit_card',
   });
   const [loading, setLoading] = useState(false);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     if (name === 'total_value') {
-      // Remove any non-digit characters except decimal point and comma
-      let processedValue = value.replace(/[^\d,.]/g, '');
+      // Remove tudo que não for número
+      const numericValue = value.replace(/\D/g, '');
       
-      // Replace comma with dot for internal storage
-      processedValue = processedValue.replace(/\./g, '').replace(',', '.');
+      // Converte para centavos e formata
+      const amount = (parseInt(numericValue || '0', 10) / 100).toFixed(2);
       
-      setFormData(prev => ({ ...prev, [name]: processedValue }));
+      // Armazena o valor numérico para cálculos
+      setFormData(prev => ({ ...prev, [name]: amount }));
+    } else if (name === 'payment_method') {
+      if (value === 'pix' || value === 'cash') {
+        setFormData(prev => ({ ...prev, payment_method: value, installments: '1' }));
+      } else {
+        setFormData(prev => ({ ...prev, payment_method: value }));
+      }
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -37,6 +48,7 @@ const NewAppointment = () => {
 
   const formatCurrency = (value: string) => {
     if (!value) return '';
+    // Converte para número e formata como moeda brasileira
     const numericValue = parseFloat(value);
     if (isNaN(numericValue)) return '';
     
@@ -55,10 +67,23 @@ const NewAppointment = () => {
     });
   };
 
-  const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number): string[] => {
+  const addBusinessDays = (date: Date, days: number): Date => {
+    let currentDate = date;
+    let remainingDays = days;
+
+    while (remainingDays > 0) {
+      currentDate = addDays(currentDate, 1);
+      if (!isWeekend(currentDate)) {
+        remainingDays--;
+      }
+    }
+
+    return currentDate;
+  };
+
+  const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number, paymentMethod: string): string[] => {
     const dates: string[] = [];
     
-    // Parse the date and set to UTC noon to ensure consistent date handling
     const procedureDate = set(parseISO(procedureDateStr), {
       hours: 12,
       minutes: 0,
@@ -66,16 +91,19 @@ const NewAppointment = () => {
       milliseconds: 0
     });
 
-    // Format dates in UTC
-    const formatUTCDate = (date: Date) => {
-      return format(date, "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    const formatTZDate = (date: Date) => {
+      return formatInTimeZone(date, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX");
     };
     
-    // Calculate installment dates (30, 60, 90 days after procedure date)
+    if (paymentMethod === 'pix' || paymentMethod === 'cash') {
+      dates.push(formatTZDate(procedureDate));
+      return dates;
+    }
+    
     for (let i = 0; i < numberOfInstallments; i++) {
-      const daysToAdd = (i + 1) * 30; // 30 days for first payment, 60 for second, 90 for third
-      const nextDate = addDays(procedureDate, daysToAdd);
-      dates.push(formatUTCDate(nextDate));
+      const daysToAdd = (i + 1) * 30;
+      const nextDate = addBusinessDays(procedureDate, daysToAdd);
+      dates.push(formatTZDate(nextDate));
     }
 
     return dates;
@@ -94,10 +122,10 @@ const NewAppointment = () => {
         throw new Error('User not authenticated');
       }
 
-      // Convert selected date to UTC format
       const installmentDates = calculateInstallmentDates(
         formData.procedure_date,
-        parseInt(formData.installments)
+        parseInt(formData.installments),
+        formData.payment_method
       );
 
       const appointments = installmentDates.map((date, index) => ({
@@ -107,11 +135,12 @@ const NewAppointment = () => {
         total_value: parseFloat(formData.total_value),
         installments: parseInt(formData.installments),
         installment_value: parseFloat(formData.total_value) / parseInt(formData.installments),
-        procedure_date: format(parseISO(formData.procedure_date), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+        procedure_date: formatInTimeZone(parseISO(formData.procedure_date), timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX"),
         next_payment_date: date,
-        status: 'pending',
+        status: formData.payment_method === 'pix' || formData.payment_method === 'cash' ? 'paid' : 'pending',
         user_id: user.id,
-        installment_number: index + 1
+        installment_number: index + 1,
+        payment_method: formData.payment_method
       }));
 
       const { error: supabaseError } = await supabase
@@ -133,15 +162,30 @@ const NewAppointment = () => {
   const previewInstallments = () => {
     if (!formData.procedure_date || !formData.installments) return null;
 
-    const dates = calculateInstallmentDates(formData.procedure_date, parseInt(formData.installments));
+    const dates = calculateInstallmentDates(
+      formData.procedure_date,
+      parseInt(formData.installments),
+      formData.payment_method
+    );
     const installmentValue = parseFloat(formData.total_value) / parseInt(formData.installments);
 
     return dates.map((date, index) => (
       <div key={date} className="flex justify-between items-center py-2 border-b last:border-b-0">
-        <span>Parcela {index + 1}</span>
+        <span>
+          {formData.payment_method === 'credit_card' 
+            ? `Parcela ${index + 1}` 
+            : 'Pagamento à vista'}
+        </span>
         <div className="text-right">
-          <div className="font-medium">R$ {installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          <div className="text-sm text-gray-600">{format(parseISO(date), 'dd/MM/yyyy')}</div>
+          <div className="font-medium">
+            {installmentValue.toLocaleString('pt-BR', { 
+              style: 'currency', 
+              currency: 'BRL' 
+            })}
+          </div>
+          <div className="text-sm text-gray-600">
+            {format(parseISO(date), 'dd/MM/yyyy')}
+          </div>
         </div>
       </div>
     ));
@@ -218,6 +262,26 @@ const NewAppointment = () => {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="flex items-center gap-2">
+                  <CreditCard className="w-4 h-4" />
+                  <span>Forma de Pagamento</span>
+                </div>
+              </label>
+              <select
+                name="payment_method"
+                value={formData.payment_method}
+                onChange={handleInputChange}
+                required
+                className="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary"
+              >
+                <option value="credit_card">Cartão de Crédito</option>
+                <option value="pix">PIX</option>
+                <option value="cash">Dinheiro</option>
+              </select>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -256,7 +320,8 @@ const NewAppointment = () => {
                   onChange={handleInputChange}
                   required
                   min="1"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary"
+                  disabled={formData.payment_method === 'pix' || formData.payment_method === 'cash'}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-primary focus:border-primary disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
               </div>
             </div>
@@ -299,9 +364,17 @@ const NewAppointment = () => {
                   <div className="text-2xl font-bold">
                     R$ {formatCurrency(formData.total_value)}
                   </div>
+                  <div className="text-sm text-gray-600 mt-2">
+                    Forma de Pagamento: {
+                      formData.payment_method === 'credit_card' ? 'Cartão de Crédito' :
+                      formData.payment_method === 'pix' ? 'PIX' : 'Dinheiro'
+                    }
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-gray-700">Parcelas:</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {formData.payment_method === 'credit_card' ? 'Parcelas:' : 'Pagamento:'}
+                  </div>
                   <div className="space-y-2">
                     {previewInstallments()}
                   </div>
