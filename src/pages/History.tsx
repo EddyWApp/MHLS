@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Calendar, DollarSign } from 'lucide-react';
-import { format } from 'date-fns';
+import { Search, Calendar, DollarSign, History as HistoryIcon, Edit2, Trash2 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import EditClientModal from '../components/EditClientModal';
+import Modal from '../components/Modal';
+import toast from 'react-hot-toast';
 
 interface Appointment {
   id: string;
@@ -21,6 +24,9 @@ const History = () => {
   const [search, setSearch] = useState('');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   useEffect(() => {
     if (search.length >= 3) {
@@ -45,6 +51,30 @@ const History = () => {
       console.error('Error fetching appointments:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedAppointment) return;
+
+    const toastId = toast.loading('Excluindo agendamento...');
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('procedure_date', selectedAppointment.procedure_date)
+        .eq('patient_name', selectedAppointment.patient_name);
+
+      if (error) throw error;
+
+      toast.success('Agendamento excluído com sucesso!', { id: toastId });
+      await searchAppointments();
+    } catch (error) {
+      console.error('Error deleting appointment:', error);
+      toast.error('Erro ao excluir agendamento.', { id: toastId });
+    } finally {
+      setIsDeleteModalOpen(false);
+      setSelectedAppointment(null);
     }
   };
 
@@ -111,6 +141,8 @@ const History = () => {
         <div className="space-y-8">
           {groupAppointmentsByProcedure(appointments).map((group, index) => {
             const firstAppointment = group[0];
+            const hasPendingPayments = group.some(app => app.status === 'pending');
+            
             return (
               <div
                 key={`${firstAppointment.id}-${index}`}
@@ -120,6 +152,28 @@ const History = () => {
                   <div>
                     <h3 className="text-xl font-semibold">{firstAppointment.patient_name}</h3>
                     <p className="text-gray-600">CPF: {firstAppointment.cpf}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {hasPendingPayments && (
+                      <button
+                        onClick={() => {
+                          setSelectedAppointment(firstAppointment);
+                          setIsEditModalOpen(true);
+                        }}
+                        className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
+                      >
+                        <Edit2 className="w-5 h-5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setSelectedAppointment(firstAppointment);
+                        setIsDeleteModalOpen(true);
+                      }}
+                      className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-full transition-colors"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
 
@@ -138,7 +192,10 @@ const History = () => {
                 <div className="mb-4">
                   <p className="text-gray-600">Valor Total:</p>
                   <p className="font-medium">
-                    R$ {firstAppointment.total_value.toFixed(2)}
+                    {firstAppointment.total_value.toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL'
+                    })}
                   </p>
                 </div>
 
@@ -159,7 +216,12 @@ const History = () => {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold">R$ {payment.installment_value.toFixed(2)}</p>
+                          <p className="font-bold">
+                            {payment.installment_value.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL'
+                            })}
+                          </p>
                           <span
                             className={`inline-block px-2 py-1 rounded-full text-sm ${getStatusColor(
                               payment.status
@@ -181,6 +243,27 @@ const History = () => {
           Nenhum resultado encontrado.
         </div>
       ) : null}
+
+      <EditClientModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setSelectedAppointment(null);
+        }}
+        client={selectedAppointment}
+        onUpdate={searchAppointments}
+      />
+
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setSelectedAppointment(null);
+        }}
+        onConfirm={handleDelete}
+        title="Excluir Agendamento"
+        message="Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita."
+      />
     </div>
   );
 };

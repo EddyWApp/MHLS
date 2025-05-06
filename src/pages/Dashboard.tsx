@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Calendar, AlertCircle, CheckCircle, DollarSign, Edit2 } from 'lucide-react';
+import { Calendar, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
-import Modal from '../components/Modal';
-import EditClientModal from '../components/EditClientModal';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 
@@ -40,9 +38,6 @@ const Dashboard = () => {
   const [monthlyPaidPayments, setMonthlyPaidPayments] = useState<Appointment[]>([]);
   const [monthlyTotal, setMonthlyTotal] = useState(0);
   const [totalPaid, setTotalPaid] = useState(0);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<Appointment | null>(null);
   const [monthlyPaymentsData, setMonthlyPaymentsData] = useState<MonthlyPayment[]>([]);
 
   useEffect(() => {
@@ -141,37 +136,18 @@ const Dashboard = () => {
     }
   };
 
-  const handlePaymentComplete = async () => {
-    if (!selectedPayment) return;
-
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'paid' })
-        .eq('id', selectedPayment.id);
-
-      if (error) throw error;
-
-      await fetchDashboardData();
-      setIsModalOpen(false);
-      setSelectedPayment(null);
-    } catch (error) {
-      console.error('Error updating payment status:', error);
-    }
-  };
-
   const chartData = {
     labels: monthlyPaymentsData.map(data => data.month),
     datasets: [
       {
         data: monthlyPaymentsData.map(data => data.total),
         backgroundColor: [
-          '#FF6B6B', // Vermelho
-          '#4ECDC4', // Verde água
-          '#45B7D1', // Azul claro
-          '#96CEB4', // Verde claro
-          '#4A90E2', // Azul
-          '#9B59B6'  // Roxo
+          '#FF6B6B',
+          '#4ECDC4',
+          '#45B7D1',
+          '#96CEB4',
+          '#4A90E2',
+          '#9B59B6'
         ],
         borderColor: '#ffffff',
         borderWidth: 2,
@@ -203,18 +179,7 @@ const Dashboard = () => {
     <div className="bg-white rounded-lg shadow p-4 mb-4">
       <div className="flex justify-between items-start">
         <div>
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-lg">{payment.patient_name}</h3>
-            <button
-              onClick={() => {
-                setSelectedPayment(payment);
-                setIsEditModalOpen(true);
-              }}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <Edit2 className="h-4 w-4" />
-            </button>
-          </div>
+          <h3 className="font-semibold text-lg">{payment.patient_name}</h3>
           <p className="text-sm text-gray-600">CPF: {payment.cpf}</p>
           <p className="text-sm text-gray-600">{payment.procedure}</p>
           <p className="text-sm text-gray-600">Parcela {payment.installment_number} de {payment.installments}</p>
@@ -227,9 +192,21 @@ const Dashboard = () => {
             Vencimento: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
           </p>
           <button
-            onClick={() => {
-              setSelectedPayment(payment);
-              setIsModalOpen(true);
+            onClick={async () => {
+              const toastId = toast.loading('Atualizando status...');
+              try {
+                const { error } = await supabase
+                  .from('appointments')
+                  .update({ status: 'paid' })
+                  .eq('id', payment.id);
+
+                if (error) throw error;
+                await fetchDashboardData();
+                toast.success('Status atualizado com sucesso!', { id: toastId });
+              } catch (error) {
+                console.error('Error updating payment status:', error);
+                toast.error('Erro ao atualizar status.', { id: toastId });
+              }
             }}
             className={`px-4 py-2 rounded-md text-white transition-colors ${
               isOverdue ? 'bg-red-600 hover:bg-red-700' : 'btn-primary'
@@ -333,27 +310,6 @@ const Dashboard = () => {
           ))}
         </div>
       )}
-
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedPayment(null);
-        }}
-        onConfirm={handlePaymentComplete}
-        title="Confirmar Pagamento"
-        message="Essa parcela foi realmente paga?"
-      />
-
-      <EditClientModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setSelectedPayment(null);
-        }}
-        client={selectedPayment}
-        onUpdate={fetchDashboardData}
-      />
     </div>
   );
 };
