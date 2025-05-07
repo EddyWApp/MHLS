@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { format, parseISO } from 'date-fns';
 import InputMask from 'react-input-mask';
@@ -12,6 +12,7 @@ interface Client {
   total_value: number;
   installment_value: number;
   next_payment_date: string;
+  payment_method: string;
 }
 
 interface EditClientModalProps {
@@ -23,19 +24,34 @@ interface EditClientModalProps {
 
 const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalProps) => {
   const [formData, setFormData] = useState({
-    patient_name: client?.patient_name || '',
-    cpf: client?.cpf || '',
-    procedure: client?.procedure || '',
-    total_value: client?.total_value?.toString() || '',
-    next_payment_date: client?.next_payment_date ? format(parseISO(client.next_payment_date), 'yyyy-MM-dd') : '',
-    installment_value: client?.installment_value?.toString() || '',
+    patient_name: '',
+    cpf: '',
+    procedure: '',
+    total_value: '',
+    next_payment_date: '',
+    installment_value: '',
+    payment_method: 'credit_card',
   });
+
+  useEffect(() => {
+    if (client) {
+      setFormData({
+        patient_name: client.patient_name,
+        cpf: client.cpf,
+        procedure: client.procedure,
+        total_value: client.total_value.toString(),
+        next_payment_date: client.next_payment_date ? format(parseISO(client.next_payment_date), 'yyyy-MM-dd') : '',
+        installment_value: client.installment_value.toString(),
+        payment_method: client.payment_method,
+      });
+    }
+  }, [client]);
 
   const [loading, setLoading] = useState(false);
 
   if (!isOpen || !client) return null;
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
     if (name === 'total_value' || name === 'installment_value') {
@@ -75,6 +91,7 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
           total_value: parseFloat(formData.total_value),
           installment_value: parseFloat(formData.installment_value),
           next_payment_date: formData.next_payment_date,
+          payment_method: formData.payment_method,
         })
         .eq('id', client.id);
 
@@ -137,6 +154,23 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
               required
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Forma de Pagamento
+            </label>
+            <select
+              name="payment_method"
+              value={formData.payment_method}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+            >
+              <option value="credit_card">Cartão de Crédito</option>
+              <option value="pix">PIX</option>
+              <option value="cash">Dinheiro</option>
+            </select>
           </div>
 
           <div>
