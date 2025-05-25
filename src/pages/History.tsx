@@ -18,6 +18,7 @@ interface Appointment {
   next_payment_date: string;
   status: 'pending' | 'paid' | 'overdue';
   installment_number: number;
+  payment_method: string;
 }
 
 const History = () => {
@@ -31,24 +32,40 @@ const History = () => {
   useEffect(() => {
     if (search.length >= 3) {
       searchAppointments();
+    } else if (search.length === 0) {
+      // Load all appointments when search is cleared
+      searchAppointments();
     }
   }, [search]);
 
   const searchAppointments = async () => {
     setLoading(true);
     try {
-      const searchTerm = search.replace(/\D/g, ''); // Remove non-digits for CPF search
-      const { data, error } = await supabase
+      let query = supabase
         .from('appointments')
         .select('*')
-        .or(`patient_name.ilike.%${search}%,cpf.eq.${searchTerm}`)
-        .order('procedure_date', { ascending: false })
-        .order('installment_number', { ascending: true });
+        .order('next_payment_date', { ascending: false });
+
+      if (search.length >= 3) {
+        const searchTerm = search.replace(/\D/g, ''); // Remove non-digits for CPF search
+        query = query.or(`patient_name.ilike.%${search}%,cpf.eq.${searchTerm}`);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
-      setAppointments(data || []);
+
+      // Sort appointments: completed first, then by date
+      const sortedAppointments = data?.sort((a, b) => {
+        if (a.status === 'paid' && b.status !== 'paid') return -1;
+        if (a.status !== 'paid' && b.status === 'paid') return 1;
+        return new Date(b.next_payment_date).getTime() - new Date(a.next_payment_date).getTime();
+      });
+
+      setAppointments(sortedAppointments || []);
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      toast.error('Erro ao buscar agendamentos');
     } finally {
       setLoading(false);
     }

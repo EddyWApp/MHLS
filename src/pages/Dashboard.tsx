@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Calendar, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, parseISO, subMonths } from 'date-fns';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
+import toast from 'react-hot-toast';
 
 ChartJS.register(ArcElement, ChartTooltip, Legend);
 
@@ -97,10 +98,20 @@ const Dashboard = () => {
         0
       ) || 0;
 
+      // Fetch last 6 months of paid payments for the chart
+      const sixMonthsAgo = format(subMonths(today, 5), 'yyyy-MM-dd');
+      const { data: lastSixMonthsPayments } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('status', 'paid')
+        .gte('next_payment_date', sixMonthsAgo)
+        .lte('next_payment_date', lastDayStr)
+        .order('next_payment_date');
+
       // Process monthly payments data for the pie chart
       const monthlyData = new Map<string, number>();
       
-      // Initialize with zero values
+      // Initialize with zero values for last 6 months
       for (let i = 5; i >= 0; i--) {
         const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const monthKey = format(date, 'MMM/yyyy');
@@ -108,7 +119,7 @@ const Dashboard = () => {
       }
 
       // Add actual payment data
-      monthlyPaid?.forEach(payment => {
+      lastSixMonthsPayments?.forEach(payment => {
         const date = parseISO(payment.next_payment_date);
         const monthKey = format(date, 'MMM/yyyy');
         if (monthlyData.has(monthKey)) {
@@ -133,6 +144,7 @@ const Dashboard = () => {
       setTotalPaid(totalPaidValue);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      toast.error('Erro ao carregar dados do dashboard');
     }
   };
 

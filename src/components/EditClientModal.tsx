@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, addDays, isWeekend } from 'date-fns';
 import InputMask from 'react-input-mask';
 import toast from 'react-hot-toast';
 
@@ -13,6 +13,8 @@ interface Client {
   installment_value: number;
   next_payment_date: string;
   payment_method: string;
+  installments: number;
+  procedure_date: string;
 }
 
 interface EditClientModalProps {
@@ -31,6 +33,7 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
     next_payment_date: '',
     installment_value: '',
     payment_method: 'credit_card',
+    installments: '1',
   });
 
   useEffect(() => {
@@ -43,6 +46,7 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
         next_payment_date: client.next_payment_date ? format(parseISO(client.next_payment_date), 'yyyy-MM-dd') : '',
         installment_value: client.installment_value.toString(),
         payment_method: client.payment_method,
+        installments: client.installments.toString(),
       });
     }
   }, [client]);
@@ -50,6 +54,38 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
   const [loading, setLoading] = useState(false);
 
   if (!isOpen || !client) return null;
+
+  const addBusinessDays = (date: Date, days: number): Date => {
+    let currentDate = date;
+    let remainingDays = days;
+
+    while (remainingDays > 0) {
+      currentDate = addDays(currentDate, 1);
+      if (!isWeekend(currentDate)) {
+        remainingDays--;
+      }
+    }
+
+    return currentDate;
+  };
+
+  const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number): string[] => {
+    const dates: string[] = [];
+    const procedureDate = parseISO(procedureDateStr);
+    
+    if (formData.payment_method === 'pix' || formData.payment_method === 'cash') {
+      dates.push(format(procedureDate, 'yyyy-MM-dd'));
+      return dates;
+    }
+    
+    for (let i = 0; i < numberOfInstallments; i++) {
+      const daysToAdd = (i + 1) * 30;
+      const nextDate = addBusinessDays(procedureDate, daysToAdd);
+      dates.push(format(nextDate, 'yyyy-MM-dd'));
+    }
+
+    return dates;
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -60,6 +96,27 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
       // Replace comma with dot for internal storage
       processedValue = processedValue.replace(/\./g, '').replace(',', '.');
       setFormData(prev => ({ ...prev, [name]: processedValue }));
+    } else if (name === 'installments') {
+      const newInstallments = parseInt(value) || 1;
+      const totalValue = parseFloat(formData.total_value);
+      const newInstallmentValue = (totalValue / newInstallments).toFixed(2);
+      
+      setFormData(prev => ({
+        ...prev,
+        installments: value,
+        installment_value: newInstallmentValue
+      }));
+    } else if (name === 'payment_method') {
+      if (value === 'pix' || value === 'cash') {
+        setFormData(prev => ({
+          ...prev,
+          payment_method: value,
+          installments: '1',
+          installment_value: formData.total_value
+        }));
+      } else {
+        setFormData(prev => ({ ...prev, payment_method: value }));
+      }
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -82,20 +139,40 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
     const toastId = toast.loading('Atualizando dados...');
 
     try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({
-          patient_name: formData.patient_name,
-          cpf: formData.cpf.replace(/\D/g, ''),
-          procedure: formData.procedure,
-          total_value: parseFloat(formData.total_value),
-          installment_value: parseFloat(formData.installment_value),
-          next_payment_date: formData.next_payment_date,
-          payment_method: formData.payment_method,
-        })
-        .eq('id', client.id);
+      const installmentDates = calculateInstallmentDates(
+        client.procedure_date,
+        parseInt(formData.installments)
+      );
 
-      if (error) throw error;
+      // Delete existing appointments
+      const { error: deleteError } = await supabase
+        .from('appointments')
+        .delete()
+        .eq('procedure_date', client.procedure_date)
+        .eq('patient_name', client.patient_name);
+
+      if (deleteError) throw deleteError;
+
+      // Create new appointments with updated installment information
+      const appointments = installmentDates.map((date, index) => ({
+        patient_name: formData.patient_name,
+        cpf: formData.cpf.replace(/\D/g, ''),
+        procedure: formData.procedure,
+        total_value: parseFloat(formData.total_value),
+        installments: parseInt(formData.installments),
+        installment_value: parseFloat(formData.total_value) / parseInt(formData.installments),
+        procedure_date: client.procedure_date,
+        next_payment_date: date,
+        status: formData.payment_method === 'pix' || formData.payment_method === 'cash' ? 'paid' : 'pending',
+        installment_number: index + 1,
+        payment_method: formData.payment_method
+      }));
+
+      const { error: insertError } = await supabase
+        .from('appointments')
+        .insert(appointments);
+
+      if (insertError) throw insertError;
 
       await onUpdate();
       toast.success('Dados atualizados com sucesso!', { id: toastId });
@@ -192,6 +269,22 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Número de Parcelas
+            </label>
+            <input
+              type="number"
+              name="installments"
+              value={formData.installments}
+              onChange={handleInputChange}
+              min="1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+              disabled={formData.payment_method === 'pix' || formData.payment_method === 'cash'}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Valor da Parcela
             </label>
             <div className="relative">
@@ -203,22 +296,9 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
                 onChange={handleInputChange}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md"
                 required
+                disabled
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Data de Vencimento
-            </label>
-            <input
-              type="date"
-              name="next_payment_date"
-              value={formData.next_payment_date}
-              onChange={handleInputChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              required
-            />
           </div>
 
           <div className="flex justify-end space-x-4 mt-6">
