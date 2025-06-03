@@ -37,7 +37,12 @@ const NewAppointment = () => {
       setFormData(prev => ({ ...prev, [name]: amount }));
     } else if (name === 'payment_method') {
       if (value === 'pix' || value === 'cash') {
-        setFormData(prev => ({ ...prev, payment_method: value, installments: '1' }));
+        setFormData(prev => ({
+          ...prev,
+          payment_method: value,
+          installments: '1',
+          installment_value: formData.total_value
+        }));
       } else {
         setFormData(prev => ({ ...prev, payment_method: value }));
       }
@@ -67,23 +72,17 @@ const NewAppointment = () => {
     });
   };
 
-  const addBusinessDays = (date: Date, days: number): Date => {
-    let currentDate = date;
-    let remainingDays = days;
-
-    while (remainingDays > 0) {
-      currentDate = addDays(currentDate, 1);
-      if (!isWeekend(currentDate)) {
-        remainingDays--;
-      }
+  const adjustForWeekend = (date: Date): Date => {
+    while (isWeekend(date)) {
+      date = addDays(date, 1); // Add days until we reach a weekday
     }
-
-    return currentDate;
+    return date;
   };
 
   const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number, paymentMethod: string): string[] => {
     const dates: string[] = [];
     
+    // Set time to noon (12:00) to avoid timezone issues
     const procedureDate = set(parseISO(procedureDateStr), {
       hours: 12,
       minutes: 0,
@@ -100,10 +99,16 @@ const NewAppointment = () => {
       return dates;
     }
     
+    let lastDate = procedureDate;
     for (let i = 0; i < numberOfInstallments; i++) {
-      const daysToAdd = (i + 1) * 30;
-      const nextDate = addBusinessDays(procedureDate, daysToAdd);
+      // Add 30 days to the last date
+      let nextDate = addDays(lastDate, 30);
+      
+      // Adjust for weekend if necessary
+      nextDate = adjustForWeekend(nextDate);
+      
       dates.push(formatTZDate(nextDate));
+      lastDate = nextDate; // Use the adjusted date as the base for the next calculation
     }
 
     return dates;
@@ -128,6 +133,14 @@ const NewAppointment = () => {
         formData.payment_method
       );
 
+      // Set procedure date with fixed time to avoid timezone issues
+      const procedureDateTime = set(parseISO(formData.procedure_date), {
+        hours: 12,
+        minutes: 0,
+        seconds: 0,
+        milliseconds: 0
+      });
+
       const appointments = installmentDates.map((date, index) => ({
         patient_name: formData.patient_name,
         cpf: formData.cpf.replace(/\D/g, ''),
@@ -135,7 +148,7 @@ const NewAppointment = () => {
         total_value: parseFloat(formData.total_value),
         installments: parseInt(formData.installments),
         installment_value: parseFloat(formData.total_value) / parseInt(formData.installments),
-        procedure_date: formatInTimeZone(parseISO(formData.procedure_date), timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+        procedure_date: formatInTimeZone(procedureDateTime, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX"),
         next_payment_date: date,
         status: formData.payment_method === 'pix' || formData.payment_method === 'cash' ? 'paid' : 'pending',
         user_id: user.id,
