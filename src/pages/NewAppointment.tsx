@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Calendar, DollarSign, User, FileText, Hash, ArrowLeft, CreditCard } from 'lucide-react';
-import { addDays, format, parseISO, set, isWeekend } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+import { addDays, format, parseISO, isWeekend } from 'date-fns';
+import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
 import { Tooltip } from '../components/Tooltip';
 import InputMask from 'react-input-mask';
 import toast from 'react-hot-toast';
@@ -73,8 +73,12 @@ const NewAppointment = () => {
   };
 
   const adjustForWeekend = (date: Date): Date => {
-    while (isWeekend(date)) {
-      date = addDays(date, 1); // Add days until we reach a weekday
+    // Se cair no sábado (6), move para segunda (adiciona 2 dias)
+    // Se cair no domingo (0), move para segunda (adiciona 1 dia)
+    if (date.getDay() === 6) { // Sábado
+      return addDays(date, 2);
+    } else if (date.getDay() === 0) { // Domingo
+      return addDays(date, 1);
     }
     return date;
   };
@@ -82,33 +86,31 @@ const NewAppointment = () => {
   const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number, paymentMethod: string): string[] => {
     const dates: string[] = [];
     
-    // Set time to noon (12:00) to avoid timezone issues
-    const procedureDate = set(parseISO(procedureDateStr), {
-      hours: 12,
-      minutes: 0,
-      seconds: 0,
-      milliseconds: 0
-    });
-
-    const formatTZDate = (date: Date) => {
-      return formatInTimeZone(date, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX");
-    };
+    // Cria a data do procedimento no fuso horário de São Paulo
+    const procedureDate = zonedTimeToUtc(`${procedureDateStr}T12:00:00`, timeZone);
     
     if (paymentMethod === 'pix' || paymentMethod === 'cash') {
-      dates.push(formatTZDate(procedureDate));
+      // Para pagamento à vista, usa a data do procedimento
+      dates.push(format(procedureDate, 'yyyy-MM-dd'));
       return dates;
     }
     
-    let lastDate = procedureDate;
+    // Para parcelamento no cartão de crédito
     for (let i = 0; i < numberOfInstallments; i++) {
-      // Add 30 days to the last date
-      let nextDate = addDays(lastDate, 30);
+      let installmentDate;
       
-      // Adjust for weekend if necessary
-      nextDate = adjustForWeekend(nextDate);
+      if (numberOfInstallments === 1) {
+        // Se for apenas 1 parcela no cartão, usa a data do procedimento
+        installmentDate = procedureDate;
+      } else {
+        // Para múltiplas parcelas, adiciona 30 dias corridos para cada parcela
+        installmentDate = addDays(procedureDate, (i + 1) * 30);
+      }
       
-      dates.push(formatTZDate(nextDate));
-      lastDate = nextDate; // Use the adjusted date as the base for the next calculation
+      // Ajusta para segunda-feira se cair no fim de semana
+      installmentDate = adjustForWeekend(installmentDate);
+      
+      dates.push(format(installmentDate, 'yyyy-MM-dd'));
     }
 
     return dates;
@@ -133,13 +135,8 @@ const NewAppointment = () => {
         formData.payment_method
       );
 
-      // Set procedure date with fixed time to avoid timezone issues
-      const procedureDateTime = set(parseISO(formData.procedure_date), {
-        hours: 12,
-        minutes: 0,
-        seconds: 0,
-        milliseconds: 0
-      });
+      // Cria a data do procedimento no fuso horário de São Paulo e converte para UTC
+      const procedureDateTime = zonedTimeToUtc(`${formData.procedure_date}T12:00:00`, timeZone);
 
       const appointments = installmentDates.map((date, index) => ({
         patient_name: formData.patient_name,
@@ -148,7 +145,7 @@ const NewAppointment = () => {
         total_value: parseFloat(formData.total_value),
         installments: parseInt(formData.installments),
         installment_value: parseFloat(formData.total_value) / parseInt(formData.installments),
-        procedure_date: formatInTimeZone(procedureDateTime, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+        procedure_date: format(procedureDateTime, 'yyyy-MM-dd'),
         next_payment_date: date,
         status: formData.payment_method === 'pix' || formData.payment_method === 'cash' ? 'paid' : 'pending',
         user_id: user.id,

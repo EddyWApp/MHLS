@@ -2,11 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Calendar, AlertCircle, CheckCircle, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format, startOfMonth, endOfMonth, parseISO, subMonths } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
 import { Pie } from 'react-chartjs-2';
 import toast from 'react-hot-toast';
 
 ChartJS.register(ArcElement, ChartTooltip, Legend);
+
+const timeZone = 'America/Sao_Paulo';
 
 interface Appointment {
   id: string;
@@ -45,12 +48,25 @@ const Dashboard = () => {
     fetchDashboardData();
   }, []);
 
+  const formatDateInTimezone = (dateString: string) => {
+    try {
+      const date = parseISO(dateString);
+      const zonedDate = utcToZonedTime(date, timeZone);
+      return format(zonedDate, 'dd/MM/yyyy');
+    } catch (error) {
+      // Fallback para formato simples se houver erro
+      return format(parseISO(dateString), 'dd/MM/yyyy');
+    }
+  };
+
   const fetchDashboardData = async () => {
-    const today = new Date();
+    // Usar data atual no fuso horário de São Paulo
+    const today = utcToZonedTime(new Date(), timeZone);
     const firstDayOfMonth = startOfMonth(today);
     const lastDayOfMonth = endOfMonth(today);
     const firstDayStr = format(firstDayOfMonth, 'yyyy-MM-dd');
     const lastDayStr = format(lastDayOfMonth, 'yyyy-MM-dd');
+    const todayStr = format(today, 'yyyy-MM-dd');
 
     try {
       // Fetch upcoming payments
@@ -58,7 +74,7 @@ const Dashboard = () => {
         .from('appointments')
         .select('*')
         .eq('status', 'pending')
-        .gte('next_payment_date', today.toISOString().split('T')[0])
+        .gte('next_payment_date', todayStr)
         .order('next_payment_date')
         .limit(5);
 
@@ -67,7 +83,7 @@ const Dashboard = () => {
         .from('appointments')
         .select('*')
         .eq('status', 'pending')
-        .lt('next_payment_date', today.toISOString().split('T')[0])
+        .lt('next_payment_date', todayStr)
         .order('next_payment_date');
 
       // Fetch all payments for the current month (regardless of status)
@@ -121,7 +137,8 @@ const Dashboard = () => {
       // Add actual payment data
       lastSixMonthsPayments?.forEach(payment => {
         const date = parseISO(payment.next_payment_date);
-        const monthKey = format(date, 'MMM/yyyy');
+        const zonedDate = utcToZonedTime(date, timeZone);
+        const monthKey = format(zonedDate, 'MMM/yyyy');
         if (monthlyData.has(monthKey)) {
           monthlyData.set(
             monthKey,
@@ -201,7 +218,7 @@ const Dashboard = () => {
             {formatCurrency(payment.installment_value)}
           </p>
           <p className="text-sm text-gray-600 mb-2">
-            Vencimento: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
+            Vencimento: {formatDateInTimezone(payment.next_payment_date)}
           </p>
           <button
             onClick={async () => {
@@ -297,7 +314,7 @@ const Dashboard = () => {
                       Parcela {payment.installment_number} de {payment.installments}
                     </p>
                     <p className="text-sm text-gray-600">
-                      Pago em: {format(parseISO(payment.next_payment_date), 'dd/MM/yyyy')}
+                      Pago em: {formatDateInTimezone(payment.next_payment_date)}
                     </p>
                   </div>
                   <p className="font-bold">{formatCurrency(payment.installment_value)}</p>

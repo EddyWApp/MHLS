@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Search, Calendar, DollarSign, History as HistoryIcon, Edit2, Trash2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 import EditClientModal from '../components/EditClientModal';
 import Modal from '../components/Modal';
 import toast from 'react-hot-toast';
+
+const timeZone = 'America/Sao_Paulo';
 
 interface Appointment {
   id: string;
@@ -111,13 +114,24 @@ const History = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'paid':
-        return 'Pago';
+        return 'Emitido';
       case 'pending':
         return 'Pendente';
       case 'overdue':
         return 'Atrasado';
       default:
         return status;
+    }
+  };
+
+  const formatDateInTimezone = (dateString: string) => {
+    try {
+      const date = parseISO(dateString);
+      const zonedDate = utcToZonedTime(date, timeZone);
+      return format(zonedDate, 'dd/MM/yyyy');
+    } catch (error) {
+      // Fallback para formato simples se houver erro
+      return format(parseISO(dateString), 'dd/MM/yyyy');
     }
   };
 
@@ -202,7 +216,7 @@ const History = () => {
                 <div className="mb-4">
                   <p className="text-gray-600">Data do Procedimento:</p>
                   <p className="font-medium">
-                    {format(new Date(firstAppointment.procedure_date), 'dd/MM/yyyy')}
+                    {formatDateInTimezone(firstAppointment.procedure_date)}
                   </p>
                 </div>
 
@@ -229,7 +243,7 @@ const History = () => {
                             Parcela {payment.installment_number} de {payment.installments}
                           </p>
                           <p className="text-sm text-gray-600">
-                            Vencimento: {format(new Date(payment.next_payment_date), 'dd/MM/yyyy')}
+                            Vencimento: {formatDateInTimezone(payment.next_payment_date)}
                           </p>
                         </div>
                         <div className="text-right">
