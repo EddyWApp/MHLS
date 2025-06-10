@@ -258,7 +258,7 @@ const Dashboard = () => {
           </div>
           <p className="text-3xl font-bold">{formatCurrency(monthlyTotal)}</p>
           <p className="text-sm text-gray-600 mt-2">
-            Total de parcelas previstas para este mês
+            Total Próximas Parcelas/mês
           </p>
         </div>
 
@@ -269,7 +269,7 @@ const Dashboard = () => {
           </div>
           <p className="text-3xl font-bold">{formatCurrency(totalPaid)}</p>
           <p className="text-sm text-gray-600 mt-2">
-            Total de parcelas pagas neste mês
+            Total Recibos Emitidos/mês
           </p>
         </div>
 
