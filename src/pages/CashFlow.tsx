@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { DollarSign, TrendingUp, TrendingDown, Plus, Calendar, Filter } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Plus, Calendar, Filter, Edit2, Trash2 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
 import { utcToZonedTime } from 'date-fns-tz';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip as ChartTooltip, Legend, ArcElement } from 'chart.js';
@@ -381,9 +381,6 @@ const CashFlow = () => {
                     Categoria
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Data
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Valor
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -405,9 +402,6 @@ const CashFlow = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {expense.category_name}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDateInTimezone(expense.date)}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
                       {formatCurrency(expense.amount)}
                     </td>
@@ -418,18 +412,20 @@ const CashFlow = () => {
                             setSelectedExpense(expense);
                             setIsEditExpenseModalOpen(true);
                           }}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-full transition-colors"
+                          title="Editar despesa"
                         >
-                          Editar
+                          <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => {
                             setSelectedExpense(expense);
                             setIsDeleteExpenseModalOpen(true);
                           }}
-                          className="text-red-600 hover:text-red-900"
+                          className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-full transition-colors"
+                          title="Excluir despesa"
                         >
-                          Excluir
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
@@ -461,9 +457,6 @@ const CashFlow = () => {
                     Origem
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Data
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Valor
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -480,9 +473,6 @@ const CashFlow = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {revenue.source}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDateInTimezone(revenue.date)}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
                       {formatCurrency(revenue.amount)}
                     </td>
@@ -493,18 +483,20 @@ const CashFlow = () => {
                             setSelectedRevenue(revenue);
                             setIsEditRevenueModalOpen(true);
                           }}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-full transition-colors"
+                          title="Editar receita"
                         >
-                          Editar
+                          <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => {
                             setSelectedRevenue(revenue);
                             setIsDeleteRevenueModalOpen(true);
                           }}
-                          className="text-red-600 hover:text-red-900"
+                          className="p-2 text-red-600 hover:text-red-900 hover:bg-red-50 rounded-full transition-colors"
+                          title="Excluir receita"
                         >
-                          Excluir
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
