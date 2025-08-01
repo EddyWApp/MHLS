@@ -114,7 +114,7 @@ const History = () => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'paid':
-        return 'Emitido';
+        return 'Pago';
       case 'pending':
         return 'Pendente';
       case 'overdue':

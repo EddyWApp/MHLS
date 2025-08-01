@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Calendar, History as HistoryIcon, LogOut, PlusCircle } from 'lucide-react';
+import { Calendar, History as HistoryIcon, LogOut, PlusCircle, DollarSign } from 'lucide-react';
 
 function Layout() {
   const { signOut } = useAuth();
@@ -11,6 +11,7 @@ function Layout() {
     { name: 'Dashboard', href: '/dashboard', icon: Calendar },
     { name: 'Novo Agendamento', href: '/appointments/new', icon: PlusCircle },
     { name: 'Histórico', href: '/history', icon: HistoryIcon },
+    { name: 'Controle de Caixa', href: '/cash-flow', icon: DollarSign },
   ];
 
   return (
