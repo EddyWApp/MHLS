@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Calendar, DollarSign, User, FileText, Hash, ArrowLeft, CreditCard } from 'lucide-react';
 import { addDays, format, parseISO, isWeekend } from 'date-fns';
+import { addMonths, getDate, getDaysInMonth, startOfMonth } from 'date-fns';
 import { zonedTimeToUtc, utcToZonedTime } from 'date-fns-tz';
 import { Tooltip } from '../components/Tooltip';
 import InputMask from 'react-input-mask';
@@ -86,25 +87,30 @@ const NewAppointment = () => {
   const calculateInstallmentDates = (procedureDateStr: string, numberOfInstallments: number, paymentMethod: string): string[] => {
     const dates: string[] = [];
     
-    // Cria a data do procedimento no fuso horário de São Paulo
     const procedureDate = zonedTimeToUtc(`${procedureDateStr}T12:00:00`, timeZone);
     
     if (paymentMethod === 'pix' || paymentMethod === 'cash') {
-      // Para pagamento à vista, usa a data do procedimento
       dates.push(format(procedureDate, 'yyyy-MM-dd'));
       return dates;
     }
     
-    // Para parcelamento no cartão de crédito
+    // Para parcelamento no cartão de crédito - uma parcela por mês
     for (let i = 0; i < numberOfInstallments; i++) {
-      let installmentDate;
+      // Adiciona meses sequenciais a partir do mês seguinte ao procedimento
+      let installmentDate = addMonths(procedureDate, i + 1);
       
-      if (numberOfInstallments === 1) {
-        // Se for apenas 1 parcela no cartão, usa a data do procedimento
-        installmentDate = procedureDate;
+      // Pega o dia do procedimento
+      const procedureDay = getDate(procedureDate);
+      
+      // Verifica se o mês de destino tem esse dia (ex: 31 de janeiro -> 28/29 de fevereiro)
+      const daysInTargetMonth = getDaysInMonth(installmentDate);
+      
+      if (procedureDay > daysInTargetMonth) {
+        // Se o dia não existe no mês (ex: 31 em fevereiro), usa o último dia do mês
+        installmentDate = new Date(installmentDate.getFullYear(), installmentDate.getMonth(), daysInTargetMonth);
       } else {
-        // Para múltiplas parcelas, adiciona 30 dias corridos para cada parcela
-        installmentDate = addDays(procedureDate, (i + 1) * 30);
+        // Usa o mesmo dia do procedimento
+        installmentDate = new Date(installmentDate.getFullYear(), installmentDate.getMonth(), procedureDay);
       }
       
       // Ajusta para segunda-feira se cair no fim de semana

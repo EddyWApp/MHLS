@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { format, parseISO, addDays, isWeekend } from 'date-fns';
+import { addMonths, getDate, getDaysInMonth } from 'date-fns';
 import InputMask from 'react-input-mask';
 import toast from 'react-hot-toast';
 
@@ -78,10 +79,29 @@ const EditClientModal = ({ isOpen, onClose, client, onUpdate }: EditClientModalP
       return dates;
     }
     
+    // Para parcelamento no cartão de crédito - uma parcela por mês
     for (let i = 0; i < numberOfInstallments; i++) {
-      const daysToAdd = (i + 1) * 30;
-      const nextDate = addBusinessDays(procedureDate, daysToAdd);
-      dates.push(format(nextDate, 'yyyy-MM-dd'));
+      // Adiciona meses sequenciais a partir do mês seguinte ao procedimento
+      let installmentDate = addMonths(procedureDate, i + 1);
+      
+      // Pega o dia do procedimento
+      const procedureDay = getDate(procedureDate);
+      
+      // Verifica se o mês de destino tem esse dia
+      const daysInTargetMonth = getDaysInMonth(installmentDate);
+      
+      if (procedureDay > daysInTargetMonth) {
+        // Se o dia não existe no mês, usa o último dia do mês
+        installmentDate = new Date(installmentDate.getFullYear(), installmentDate.getMonth(), daysInTargetMonth);
+      } else {
+        // Usa o mesmo dia do procedimento
+        installmentDate = new Date(installmentDate.getFullYear(), installmentDate.getMonth(), procedureDay);
+      }
+      
+      // Ajusta para segunda-feira se cair no fim de semana
+      installmentDate = adjustForWeekend(installmentDate);
+      
+      dates.push(format(installmentDate, 'yyyy-MM-dd'));
     }
 
     return dates;
